@@ -18,10 +18,10 @@ Param (
 )
 
 Function Certreqsign {
-  $value = certreq.exe -f -q -attrib "CertificateTemplate:$CertificateTemplate\nSAN:DNS=$Card.$domain&DNS=$Card&ipaddress=$((Get-M2IPv4Settings).address)" -submit -config "$CertAuthority" -attrib "CertificateTemplate:$CertificateTemplate" "c:\temp\$Card.req" "c:\temp\$Card.csr"
+  $value = certreq.exe -f -q -attrib "CertificateTemplate:$CertificateTemplate\nSAN:DNS=$Card.$domain&DNS=$Card&ipaddress=$((Get-M2IPv4Settings).address)" -submit -config $CertificateAuthority -attrib "CertificateTemplate:$CertificateTemplate" "c:\temp\$Card.req" "c:\temp\$Card.csr"
 }
 
-Connect-EatonM2 -UserName $user -Password $Pass -Card $card
+Connect-EatonM2 -UserName $user -Passwd $Pass -Card $card
 
 Write-Host "STATUS: Generate Eaton Webcert request - may take 15seconds"
 $response = Get-M2WebCertSigningRequest

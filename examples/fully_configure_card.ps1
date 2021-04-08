@@ -132,7 +132,7 @@ If(!($PSVersionTable.PSVersion.Major -eq 7)) {
 ###############
   # Web server certificate
 Function Certreqsign {
-  $value = certreq.exe -f -q -attrib "CertificateTemplate:$CertificateTemplate\nSAN:DNS=$UPSName.$domain&DNS=$UPSName&ipaddress=$((Get-M2IPv4Settings).address)" -submit -config "$CertAuthority" -attrib "CertificateTemplate:$CertificateTemplate" "c:\temp\$UPSName.req" "c:\temp\$UPSName.csr"
+  $value = certreq.exe -f -q -attrib "CertificateTemplate:$CertificateTemplate\nSAN:DNS=$UPSName.$domain&DNS=$UPSName&ipaddress=$((Get-M2IPv4Settings).address)" -submit -config $CertificateAuthority -attrib "CertificateTemplate:$CertificateTemplate" "c:\temp\$UPSName.req" "c:\temp\$UPSName.csr"
 }
   
   
