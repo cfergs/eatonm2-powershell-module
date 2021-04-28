@@ -67,6 +67,10 @@
 .PARAMETER TestEmail
   Test email sending functionality
 
+.PARAMETER LDAPCertificatePath
+  Path to the Root CA that will be used to trust secure LDAP traffic. 
+  Make sure you can open it in notepad and it shows as a cryptographic key vs a corrupted file!.
+
 .PARAMETER LDAPPwd
   Password for ldap account (if required).
 
@@ -74,22 +78,22 @@
   Generate a HTTPS certificate that is trusted by a RootCA. This will eliminate "not secure" errors when accessing the card.
 
 .EXAMPLE
-  #Configure brand new card UPS01 192.168.0.50. Also reset admin password. Card is being pre-configured in advance.
-  Configure-EatonM2.ps1 -Card 192.168.0.50 -UPSName UPS01 -ConfigureCardSettings -ResetPassword -Password SuperComplexPW -OldPassword admin -Location "Server Room - Rack 1 - R1:R6" -LDAPPassword Password1
-
-  #When card is unboxed and IP set correctly you will need to rerun example for HTTPSCertGeneration
+  #Configure brand new card UPS01 192.168.0.50. Card is being pre-configured in advance.
+  This will also reset admin password and change username to upsadmin. This will NOT set the IP address (will be left using DHCP)
+  NOTE: When card is installed at site and IP set correctly you will need to do HTTPSCertGeneration (refer to 3rd example)
+  Configure-EatonM2.ps1 -Card 192.168.0.50 -UPSName UPS01 -Username admin -ConfigureCardSettings -ResetPassword -Password SuperComplexPW -OldPassword admin -Location "Server Room - Rack 1 - R1:R6" -LDAPPassword Password1
 
 .EXAMPLE
   # Update existing card UPS01 and re-apply correct settings. Do not reset admin password. Send test email.
-  Configure-EatonM2.ps1 -Card UPS01 -UPSName UPS01 -Password SuperComplexPW -ConfigureCardSettings -HTTPSCertGeneration -Location "Datacenter - Rack 1 - R1:R6" -LDAPPassword Password1 -TestEmail
+  Configure-EatonM2.ps1 -Card UPS01 -UPSName UPS01 -Username upsadmin -Password SuperComplexPW -ConfigureCardSettings -HTTPSCertGeneration -Location "Datacenter - Rack 1 - R1:R6" -LDAPPassword Password1 -TestEmail
 
 .EXAMPLE
   # Generate HTTP certificate for UPS01. This card has just had IP set statically and everything else is configured.
-  Configure-EatonM2.ps1 -Card UPS01 -UPSName UPS01 -Password SuperComplexPW -HTTPSCertGeneration
+  Configure-EatonM2.ps1 -Card UPS01 -UPSName UPS01 -Username admin -Password SuperComplexPW -HTTPSCertGeneration
 
 .EXAMPLE
   # Update firmware on card UPS01
-  Configure-EatonM2.ps1 -Card UPS01 -UPSName UPS01 -Password SuperComplexPW -UPSFirmwareUpgradeFile "c:\temp\web_eaton_network_m2_2.0.5.tar"
+  Configure-EatonM2.ps1 -Card UPS01 -UPSName UPS01 -Username upsadmin -Password SuperComplexPW -UPSFirmwareUpgradeFile "c:\temp\web_eaton_network_m2_2.0.5.tar"
   #>
 
   Param(
@@ -105,6 +109,7 @@
     [string]$UPSFirmwareUpgradeFile,
     [string]$OldPwd,
     [switch]$TestEmail,
+    [string]$LDAPCertificatePath,
     [string]$LDAPPwd
   )
   
@@ -120,6 +125,8 @@ $emailnotificationrecipient = ''
 $CertificateTemplate = ''
 $CertificateAuthority = ''
 $Domain = ''
+$PrimaryDNS = ''
+$SecondaryDNS = ''
   
 # Check using Powershell v7
 If(!($PSVersionTable.PSVersion.Major -eq 7)) {
@@ -139,13 +146,16 @@ Function Certreqsign {
 ###########################
 ## Code to run Functions ##
 ###########################
-  
-Import-Module EatonM2Management
-  
+
+#now check for SpeculationControl module and install if needed
+if (-Not (Get-Module EatonM2Management -ListAvailable)) {
+  Install-Module EatonM2Management -Force -Confirm:$false -AllowClobber
+}
+
 Write-Host "***Configuring Card: $UPSName ***"
 if($ResetPassword) {
   if(!$OldPwd) { #check if you entered oldpassword, otherwise exit. $newPW is set as mandatory.
-    Write-Host "ERROR: Missing `$OldPassword variable. Re-run with value entered"
+    Write-Host "ERROR: Missing `$OldPwd variable. Re-run with value entered"
     exit
   }
   Reset-M2UserPassword -Card $card -UserName $UserName -OldPwd $OldPwd -NewPwd $Passwd
@@ -202,7 +212,11 @@ if($ConfigureCardSettings) {
     Set-M2LDAPProvider -Enabled $true -PrimaryLDAPName ldap-vip -PrimaryLDAPHostName ldap.example.com -SearchUserDN 'CN=svc.upsldap,OU=Users,DC=example,DC=com'  -SearchUserPwd $LDAPPwd -SearchBaseDN 'DC=example,DC=com' -RequestSID 'objectSID:S-1-5-21-123456789-123456789-123456789'
     Set-M2LDAPMapping -LDAPGroup RBAC_UPSAdmins -MappedProfile Administrator -Mapping 1
     Set-M2LDAPMapping -LDAPGroup RBAC_UPSViewer -MappedProfile Viewer -Mapping 2
-    Add-M2LDAPCert -File C:\Temp\RootCA.crt
+    if($LDAPCertificatePath) {
+      Add-M2LDAPCert -File $LDAPCertificatePath
+    } else {
+      Write-Host "You havent specified a path to the LDAP certificate. Please retry!"
+    }
   }
     
   #Configure Email
@@ -220,32 +234,31 @@ if($ConfigureCardSettings) {
   
   #Configure DNS
   #need to reboot after this for it to have the correct name
-  Set-M2DNSSettings -HostName $UPSName -DomainName example.com -PrimaryDNS 1.2.3.4 -SecondaryDNS 1.2.3.4
-    
+  Set-M2DNSSettings -HostName $UPSName -DomainName $Domain -PrimaryDNS $PrimaryDNS -SecondaryDNS $SecondaryDNS
+  Write-Host "INFO: Card Rebooting"
 }
-  
-if($HTTPSCertGeneration) {
-  if($ConfigureCardSettings) {
-    Write-Host "Rebooting Card"
-    Restart-M2Card
-    Start-Sleep -Seconds 180
-  }
-  
-  Connect-EatonM2 UserName $username -Passwd $Passwd -Card $card
-  
+
+if($ConfigureCardSettings) {
+  Write-Host "INFO: Pausing for 5mins to allow the card to reboot after changing DNS settings"
+  Start-Sleep -Seconds 300
+}
+
+if($HTTPSCertGeneration) { #This creates the cert for HTTPS
+  Connect-EatonM2 -UserName $username -Passwd $Password -Card $card
+
   Write-Host "STATUS: Generate Eaton Webcert request - may take 15seconds"
   $response = Get-M2WebCertSigningRequest
-  
+  Remove-Item -Path "c:\temp\$UPSName.*" -Include *.csr,*.rsp,*.req -Force
   $response | Out-File -File c:\temp\$UPSName.req
   
   Certreqsign
   Import-M2Webcert -File c:\temp\$UPSName.csr
-  Remove-Item -Path "c:\temp\$UPSName.*" -Include *.csr,*.rsp,*.req -Force
 }
   
 Connect-EatonM2 UserName $username -Passwd $Passwd -Card $card
   
 #Lastly update the admin username if required
-Update-M2UserName -CurrentAccount $username -NewUserName upsadmin
-  
+Update-M2UserName -NewUserName upsadmin
+Write-Host "INFO: If username changed then use upsadmin for future login attempts"
+
 Write-Host "***CARD: $UPSName has been configured***"
